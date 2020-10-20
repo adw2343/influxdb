@@ -125,6 +125,12 @@ func ignoreMethod(ignoredMethods ...string) isValidMethodFn {
 	}
 }
 
+const (
+	prefixSetup                      = "/api/v2/setup"
+	organizationsIDSecretsPath       = "/api/v2/orgs/:id/secrets"
+	organizationsIDSecretsDeletePath = "/api/v2/orgs/:id/secrets/delete"
+)
+
 // TODO(@jsteenb2): make this a stronger type that handlers can register routes that should not be logged.
 var blacklistEndpoints = map[string]isValidMethodFn{
 	prefixSignIn:                     ignoreMethod(),

@@ -827,7 +827,7 @@ func TestLauncher_Pkger(t *testing.T) {
 					pkger.WithLabelSVC(&fakeLabelSVC{
 						// can't use the LabelService HTTP client b/c it doesn't cover the
 						// all the resources pkger supports... :sadpanda:
-						LabelService:    l.kvService,
+						LabelService:    l.LabelService(t),
 						createKillCount: -1,
 						deleteKillCount: 3,
 					}),
@@ -2250,7 +2250,7 @@ func TestLauncher_Pkger(t *testing.T) {
 					//				   the bad HTTP method error :-(. Revisit this and replace with the
 					//				   the HTTP client when possible. Goal is to remove the kvservice
 					//				   dep here.
-					err := l.kvService.DeleteLabelMapping(ctx, &influxdb.LabelMapping{
+					err := l.LabelService(t).DeleteLabelMapping(ctx, &influxdb.LabelMapping{
 						LabelID:      influxdb.ID(initialSummary.Labels[0].ID),
 						ResourceID:   influxdb.ID(initialSummary.Buckets[0].ID),
 						ResourceType: influxdb.BucketsResourceType,
@@ -2274,14 +2274,14 @@ func TestLauncher_Pkger(t *testing.T) {
 						OrgID: l.Org.ID,
 						Name:  "test-label-2",
 					}
-					require.NoError(t, l.kvService.CreateLabel(ctx, newLabel))
+					require.NoError(t, l.LabelService(t).CreateLabel(ctx, newLabel))
 					defer resourceCheck.mustDeleteLabel(t, newLabel.ID)
 
 					// TODO(jsteenb2): cannot figure out the issue with the http.LabelService returning
 					//				   the bad HTTP method error :-(. Revisit this and replace with the
 					//				   the HTTP client when possible. Goal is to remove the kvservice
 					//				   dep here.
-					err := l.kvService.CreateLabelMapping(ctx, &influxdb.LabelMapping{
+					err := l.LabelService(t).CreateLabelMapping(ctx, &influxdb.LabelMapping{
 						LabelID:      newLabel.ID,
 						ResourceID:   influxdb.ID(initialSummary.Buckets[0].ID),
 						ResourceType: influxdb.BucketsResourceType,

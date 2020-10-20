@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/influxdata/flux"
 	"github.com/influxdata/flux/csv"
 	"github.com/influxdata/flux/lang"
 	"github.com/influxdata/httprouter"
+	"github.com/influxdata/influxdb/v2"
 	platform "github.com/influxdata/influxdb/v2"
 	"github.com/influxdata/influxdb/v2/pkg/httpc"
 	"github.com/influxdata/influxdb/v2/query"
@@ -261,6 +263,179 @@ func decodeGetSourceBucketsRequest(ctx context.Context, r *http.Request) (*getSo
 		getBucketsRequest: getBucketsReq,
 		getSourceRequest:  getSrcReq,
 	}, nil
+}
+
+type getBucketsRequest struct {
+	filter influxdb.BucketFilter
+	opts   influxdb.FindOptions
+}
+
+func decodeGetBucketsRequest(r *http.Request) (*getBucketsRequest, error) {
+	qp := r.URL.Query()
+	req := &getBucketsRequest{}
+
+	opts, err := influxdb.DecodeFindOptions(r)
+	if err != nil {
+		return nil, err
+	}
+
+	req.opts = *opts
+
+	if orgID := qp.Get("orgID"); orgID != "" {
+		id, err := influxdb.IDFromString(orgID)
+		if err != nil {
+			return nil, err
+		}
+		req.filter.OrganizationID = id
+	}
+
+	if org := qp.Get("org"); org != "" {
+		req.filter.Org = &org
+	}
+
+	if name := qp.Get("name"); name != "" {
+		req.filter.Name = &name
+	}
+
+	if bucketID := qp.Get("id"); bucketID != "" {
+		id, err := influxdb.IDFromString(bucketID)
+		if err != nil {
+			return nil, err
+		}
+		req.filter.ID = id
+	}
+
+	return req, nil
+}
+
+type bucketResponse struct {
+	bucket
+	Links  map[string]string `json:"links"`
+	Labels []influxdb.Label  `json:"labels"`
+}
+
+type bucket struct {
+	ID                  influxdb.ID     `json:"id,omitempty"`
+	OrgID               influxdb.ID     `json:"orgID,omitempty"`
+	Type                string          `json:"type"`
+	Description         string          `json:"description,omitempty"`
+	Name                string          `json:"name"`
+	RetentionPolicyName string          `json:"rp,omitempty"` // This to support v1 sources
+	RetentionRules      []retentionRule `json:"retentionRules"`
+	influxdb.CRUDLog
+}
+
+func newBucket(pb *influxdb.Bucket) *bucket {
+	if pb == nil {
+		return nil
+	}
+
+	rules := []retentionRule{}
+	rp := int64(pb.RetentionPeriod.Round(time.Second) / time.Second)
+	if rp > 0 {
+		rules = append(rules, retentionRule{
+			Type:         "expire",
+			EverySeconds: rp,
+		})
+	}
+
+	return &bucket{
+		ID:                  pb.ID,
+		OrgID:               pb.OrgID,
+		Type:                pb.Type.String(),
+		Name:                pb.Name,
+		Description:         pb.Description,
+		RetentionPolicyName: pb.RetentionPolicyName,
+		RetentionRules:      rules,
+		CRUDLog:             pb.CRUDLog,
+	}
+}
+
+// retentionRule is the retention rule action for a bucket.
+type retentionRule struct {
+	Type         string `json:"type"`
+	EverySeconds int64  `json:"everySeconds"`
+}
+
+func (rr *retentionRule) RetentionPeriod() (time.Duration, error) {
+	t := time.Duration(rr.EverySeconds) * time.Second
+	if t < time.Second {
+		return t, &influxdb.Error{
+			Code: influxdb.EUnprocessableEntity,
+			Msg:  "expiration seconds must be greater than or equal to one second",
+		}
+	}
+
+	return t, nil
+}
+
+func (b *bucket) toInfluxDB() (*influxdb.Bucket, error) {
+	if b == nil {
+		return nil, nil
+	}
+
+	var d time.Duration // zero value implies infinite retention policy
+
+	// Only support a single retention period for the moment
+	if len(b.RetentionRules) > 0 {
+		d = time.Duration(b.RetentionRules[0].EverySeconds) * time.Second
+		if d < time.Second {
+			return nil, &influxdb.Error{
+				Code: influxdb.EUnprocessableEntity,
+				Msg:  "expiration seconds must be greater than or equal to one second",
+			}
+		}
+	}
+
+	return &influxdb.Bucket{
+		ID:                  b.ID,
+		OrgID:               b.OrgID,
+		Type:                influxdb.ParseBucketType(b.Type),
+		Description:         b.Description,
+		Name:                b.Name,
+		RetentionPolicyName: b.RetentionPolicyName,
+		RetentionPeriod:     d,
+		CRUDLog:             b.CRUDLog,
+	}, nil
+}
+
+func NewBucketResponse(b *influxdb.Bucket, labels []*influxdb.Label) *bucketResponse {
+	res := &bucketResponse{
+		Links: map[string]string{
+			"labels":  fmt.Sprintf("/api/v2/buckets/%s/labels", b.ID),
+			"logs":    fmt.Sprintf("/api/v2/buckets/%s/logs", b.ID),
+			"members": fmt.Sprintf("/api/v2/buckets/%s/members", b.ID),
+			"org":     fmt.Sprintf("/api/v2/orgs/%s", b.OrgID),
+			"owners":  fmt.Sprintf("/api/v2/buckets/%s/owners", b.ID),
+			"self":    fmt.Sprintf("/api/v2/buckets/%s", b.ID),
+			"write":   fmt.Sprintf("/api/v2/write?org=%s&bucket=%s", b.OrgID, b.ID),
+		},
+		bucket: *newBucket(b),
+		Labels: []influxdb.Label{},
+	}
+
+	for _, l := range labels {
+		res.Labels = append(res.Labels, *l)
+	}
+
+	return res
+}
+
+type bucketsResponse struct {
+	Links   *influxdb.PagingLinks `json:"links"`
+	Buckets []*bucketResponse     `json:"buckets"`
+}
+
+func newBucketsResponse(ctx context.Context, opts influxdb.FindOptions, f influxdb.BucketFilter, bs []*influxdb.Bucket, labelService influxdb.LabelService) *bucketsResponse {
+	rs := make([]*bucketResponse, 0, len(bs))
+	for _, b := range bs {
+		labels, _ := labelService.FindResourceLabels(ctx, influxdb.LabelMappingFilter{ResourceID: b.ID, ResourceType: influxdb.BucketsResourceType})
+		rs = append(rs, NewBucketResponse(b, labels))
+	}
+	return &bucketsResponse{
+		Links:   influxdb.NewPagingLinks(prefixBuckets, opts, f, len(bs)),
+		Buckets: rs,
+	}
 }
 
 // handlePostSource is the HTTP handler for the POST /api/v2/sources route.

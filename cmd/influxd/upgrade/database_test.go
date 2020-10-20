@@ -161,7 +161,7 @@ func TestUpgradeRealDB(t *testing.T) {
 		}
 	}
 
-	auths, _, err := v2.kvService.FindAuthorizations(ctx, influxdb.AuthorizationFilter{})
+	auths, _, err := v2.authSvc.FindAuthorizations(ctx, influxdb.AuthorizationFilter{})
 	require.Nil(t, err)
 	require.Len(t, auths, 1)
 

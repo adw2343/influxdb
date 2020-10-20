@@ -12,6 +12,7 @@ import (
 	"runtime"
 
 	"github.com/influxdata/influxdb/v2"
+	"github.com/influxdata/influxdb/v2/authorization"
 	"github.com/influxdata/influxdb/v2/bolt"
 	"github.com/influxdata/influxdb/v2/dbrp"
 	"github.com/influxdata/influxdb/v2/internal/fs"
@@ -254,7 +255,7 @@ type influxDBv2 struct {
 	dbrpSvc     influxdb.DBRPMappingServiceV2
 	bucketSvc   influxdb.BucketService
 	onboardSvc  influxdb.OnboardingService
-	kvService   *kv.Service
+	authSvc     influxdb.AuthorizationService
 	meta        *meta.Client
 }
 
@@ -406,10 +407,6 @@ func newInfluxDBv2(ctx context.Context, opts *optionsV2, log *zap.Logger) (svc *
 	svc = &influxDBv2{}
 	svc.log = log
 
-	// *********************
-	// V2 specific services
-	serviceConfig := kv.ServiceConfig{}
-
 	// Create BoltDB store and K/V service
 	svc.boltClient = bolt.NewClient(log.With(zap.String("service", "bolt")))
 	svc.boltClient.Path = opts.boltPath
@@ -421,7 +418,10 @@ func newInfluxDBv2(ctx context.Context, opts *optionsV2, log *zap.Logger) (svc *
 	svc.store = bolt.NewKVStore(log.With(zap.String("service", "kvstore-bolt")), opts.boltPath)
 	svc.store.WithDB(svc.boltClient.DB())
 	svc.kvStore = svc.store
-	svc.kvService = kv.NewService(log.With(zap.String("store", "kv")), svc.store, serviceConfig)
+
+	// Create Tenant service (orgs, buckets, )
+	svc.tenantStore = tenant.NewStore(svc.kvStore)
+	svc.ts = tenant.NewSystem(svc.tenantStore, log.With(zap.String("store", "new")), reg, metric.WithSuffix("new"))
 
 	// ensure migrator is run
 	migrator, err := migration.NewMigrator(
@@ -440,14 +440,12 @@ func newInfluxDBv2(ctx context.Context, opts *optionsV2, log *zap.Logger) (svc *
 		return nil, err
 	}
 
-	// other required services
-	var (
-		authSvc influxdb.AuthorizationService = svc.kvService
-	)
+	authStore, err := authorization.NewStore(svc.store)
+	if err != nil {
+		return nil, err
+	}
 
-	// Create Tenant service (orgs, buckets, )
-	svc.tenantStore = tenant.NewStore(svc.kvStore)
-	svc.ts = tenant.NewSystem(svc.tenantStore, log.With(zap.String("store", "new")), reg, metric.WithSuffix("new"))
+	svc.authSvc = authorization.NewService(authStore, svc.ts)
 
 	svc.meta = meta.NewClient(meta.NewConfig(), svc.kvStore)
 	if err := svc.meta.Open(); err != nil {
@@ -466,7 +464,7 @@ func newInfluxDBv2(ctx context.Context, opts *optionsV2, log *zap.Logger) (svc *
 
 	svc.ts.BucketService = storage.NewBucketService(svc.ts.BucketService, engine)
 	// on-boarding service (influx setup)
-	svc.onboardSvc = tenant.NewOnboardService(svc.ts, authSvc)
+	svc.onboardSvc = tenant.NewOnboardService(svc.ts, svc.authSvc)
 
 	return svc, nil
 }

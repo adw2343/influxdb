@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/influxdata/influxdb/v2"
 	platform "github.com/influxdata/influxdb/v2"
-	"github.com/influxdata/influxdb/v2/kv"
 )
 
 // TODO(goller): remove opPrefix argument
@@ -66,7 +66,7 @@ func MustIDBase16Ptr(s string) *platform.ID {
 	return &id
 }
 
-func MustCreateOrgs(ctx context.Context, svc *kv.Service, os ...*platform.Organization) {
+func MustCreateOrgs(ctx context.Context, svc influxdb.OrganizationService, os ...*platform.Organization) {
 	for _, o := range os {
 		if err := svc.CreateOrganization(ctx, o); err != nil {
 			panic(err)
@@ -74,7 +74,7 @@ func MustCreateOrgs(ctx context.Context, svc *kv.Service, os ...*platform.Organi
 	}
 }
 
-func MustCreateLabels(ctx context.Context, svc *kv.Service, labels ...*platform.Label) {
+func MustCreateLabels(ctx context.Context, svc influxdb.LabelService, labels ...*platform.Label) {
 	for _, l := range labels {
 		if err := svc.CreateLabel(ctx, l); err != nil {
 			panic(err)
@@ -82,7 +82,7 @@ func MustCreateLabels(ctx context.Context, svc *kv.Service, labels ...*platform.
 	}
 }
 
-func MustCreateUsers(ctx context.Context, svc *kv.Service, us ...*platform.User) {
+func MustCreateUsers(ctx context.Context, svc influxdb.UserService, us ...*platform.User) {
 	for _, u := range us {
 		if err := svc.CreateUser(ctx, u); err != nil {
 			panic(err)
@@ -90,7 +90,7 @@ func MustCreateUsers(ctx context.Context, svc *kv.Service, us ...*platform.User)
 	}
 }
 
-func MustCreateMappings(ctx context.Context, svc *kv.Service, ms ...*platform.UserResourceMapping) {
+func MustCreateMappings(ctx context.Context, svc influxdb.UserResourceMappingService, ms ...*platform.UserResourceMapping) {
 	for _, m := range ms {
 		if err := svc.CreateUserResourceMapping(ctx, m); err != nil {
 			panic(err)
@@ -98,7 +98,7 @@ func MustCreateMappings(ctx context.Context, svc *kv.Service, ms ...*platform.Us
 	}
 }
 
-func MustMakeUsersOrgOwner(ctx context.Context, svc *kv.Service, oid platform.ID, uids ...platform.ID) {
+func MustMakeUsersOrgOwner(ctx context.Context, svc influxdb.UserResourceMappingService, oid platform.ID, uids ...platform.ID) {
 	ms := make([]*platform.UserResourceMapping, len(uids))
 	for i, uid := range uids {
 		ms[i] = &platform.UserResourceMapping{
@@ -111,7 +111,7 @@ func MustMakeUsersOrgOwner(ctx context.Context, svc *kv.Service, oid platform.ID
 	MustCreateMappings(ctx, svc, ms...)
 }
 
-func MustMakeUsersOrgMember(ctx context.Context, svc *kv.Service, oid platform.ID, uids ...platform.ID) {
+func MustMakeUsersOrgMember(ctx context.Context, svc influxdb.UserResourceMappingService, oid platform.ID, uids ...platform.ID) {
 	ms := make([]*platform.UserResourceMapping, len(uids))
 	for i, uid := range uids {
 		ms[i] = &platform.UserResourceMapping{

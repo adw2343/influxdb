@@ -11,6 +11,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	kithttp "github.com/influxdata/influxdb/v2/kit/transport/http"
 	"github.com/influxdata/influxdb/v2/kv"
+	"github.com/influxdata/influxdb/v2/pkg/httpc"
+	"github.com/influxdata/influxdb/v2/tenant"
 	"github.com/yudai/gojsondiff"
 	"github.com/yudai/gojsondiff/formatter"
 	"go.uber.org/zap/zaptest"
@@ -123,5 +125,20 @@ func jsonEqual(s1, s2 string) (eq bool, diff string, err error) {
 func newInMemKVSVC(t *testing.T) *kv.Service {
 	t.Helper()
 
-	return kv.NewService(zaptest.NewLogger(t), NewTestInmemStore(t))
+	store := NewTestInmemStore(t)
+
+	tenantStore := tenant.NewStore(store)
+	tenantService := tenant.NewService(tenantStore)
+
+	return kv.NewService(zaptest.NewLogger(t), store, tenantService)
+}
+
+func mustNewHTTPClient(t *testing.T, addr, token string) *httpc.Client {
+	t.Helper()
+
+	httpClient, err := NewHTTPClient(addr, token, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httpClient
 }

@@ -16,6 +16,7 @@ import (
 	httpMock "github.com/influxdata/influxdb/v2/http/mock"
 	kithttp "github.com/influxdata/influxdb/v2/kit/transport/http"
 	"github.com/influxdata/influxdb/v2/mock"
+	"github.com/influxdata/influxdb/v2/tenant"
 	platformtesting "github.com/influxdata/influxdb/v2/testing"
 	"go.uber.org/zap/zaptest"
 )
@@ -814,6 +815,10 @@ func TestService_handlePatchScraperTarget(t *testing.T) {
 
 func initScraperService(f platformtesting.TargetFields, t *testing.T) (influxdb.ScraperTargetStoreService, string, func()) {
 	t.Helper()
+
+	store := NewTestInmemStore(t)
+	tenantService := tenant.NewService(tenant.NewStore(store))
+
 	svc := newInMemKVSVC(t)
 	svc.IDGenerator = f.IDGenerator
 
@@ -825,7 +830,7 @@ func initScraperService(f platformtesting.TargetFields, t *testing.T) (influxdb.
 	}
 
 	for _, o := range f.Organizations {
-		if err := svc.PutOrganization(ctx, o); err != nil {
+		if err := tenantService.CreateOrganization(ctx, o); err != nil {
 			t.Fatalf("failed to populate orgs")
 		}
 	}
@@ -833,7 +838,7 @@ func initScraperService(f platformtesting.TargetFields, t *testing.T) (influxdb.
 	scraperBackend := NewMockScraperBackend(t)
 	scraperBackend.HTTPErrorHandler = kithttp.ErrorHandler(0)
 	scraperBackend.ScraperStorageService = svc
-	scraperBackend.OrganizationService = svc
+	scraperBackend.OrganizationService = tenantService
 	scraperBackend.BucketService = &mock.BucketService{
 		FindBucketByIDFn: func(ctx context.Context, id influxdb.ID) (*influxdb.Bucket, error) {
 			return &influxdb.Bucket{
@@ -856,8 +861,8 @@ func initScraperService(f platformtesting.TargetFields, t *testing.T) (influxdb.
 		influxdb.OrganizationService
 		ScraperService
 	}{
-		UserResourceMappingService: svc,
-		OrganizationService:        svc,
+		UserResourceMappingService: tenantService,
+		OrganizationService:        tenantService,
 		ScraperService: ScraperService{
 			Token: "tok",
 			Addr:  server.URL,

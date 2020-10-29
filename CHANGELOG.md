@@ -1,3 +1,10 @@
+## v2.0.0-rc.3 [unreleased]
+
+### Bug Fixes
+
+1. [19853](https://github.com/influxdata/influxdb/pull/19853): Use updated HTTP client for authorization service
+
+
 ## v2.0.0-rc.2 [2020-10-21]
 
 ### Features
